@@ -1,0 +1,9 @@
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 30
+
+[variables]
+GEMINI_API_KEY = "${{ secrets.GEMINI_API_KEY }}"
