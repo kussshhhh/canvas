@@ -26,6 +26,7 @@ Thumbs.db
 dist/
 build/
 *.log
+FUTURE_TODOS.md
 
 # Vite
 .vite/

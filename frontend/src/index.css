@@ -1,12 +1,83 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --tech-bg: #0a0a0a;
+  --tech-surface: #111111;
+  --tech-border: #333333;
+  --tech-text-main: #e0e0e0;
+  --tech-text-muted: #888888;
+  --tech-accent: #00f3ff; /* Cyber Cyan */
+  --tech-accent-dim: #0099a1;
+  --tech-error: #ff3333;
+}
+
 body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--tech-bg);
+  color: var(--tech-text-main);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--tech-surface);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--tech-border);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--tech-text-muted);
+}
+
+/* Utility classes for the theme */
+.tech-border {
+  border: 1px solid var(--tech-border);
+}
+
+.tech-panel {
+  background-color: var(--tech-surface);
+  border: 1px solid var(--tech-border);
+}
+
+.tech-button {
+  background-color: var(--tech-surface);
+  border: 1px solid var(--tech-accent);
+  color: var(--tech-accent);
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+}
+
+.tech-button:hover:not(:disabled) {
+  background-color: var(--tech-accent);
+  color: var(--tech-bg);
+  box-shadow: 0 0 10px var(--tech-accent-dim);
+}
+
+.tech-button:disabled {
+  border-color: var(--tech-border);
+  color: var(--tech-text-muted);
+  cursor: not-allowed;
+}
+
+.tech-input {
+  background-color: #000;
+  border: 1px solid var(--tech-border);
+  color: var(--tech-text-main);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.tech-input:focus {
+  border-color: var(--tech-accent);
+  outline: none;
+  box-shadow: 0 0 5px var(--tech-accent-dim);
 }

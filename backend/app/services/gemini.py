@@ -21,6 +21,7 @@ Guidelines:
 - Default units are millimeters
 - **CRITICAL**: Do NOT use require(). All JSCAD modelling functions are available via the global `jscad` object.
 - **CRITICAL**: You MUST destruct primitives from `jscad` at the start of `main`.
+- **CRITICAL**: Boolean operations (union, subtract, intersect) return a SINGLE geometry object, NOT an array. NEVER call .map() on the result of a boolean operation. To transform the result, wrap it in a transform function, e.g., `translate([x, y, z], result)`.
 
 Example format:
 
@@ -34,13 +35,16 @@ const main = (params) => {
   // Destructure from Global jscad object
   const { cuboid, cylinder } = jscad.primitives;
   const { translate } = jscad.transforms;
-  const { union } = jscad.booleans;
+  const { union, subtract } = jscad.booleans;
 
   const size = params.size || 50;
 
   const base = cuboid({size: [size, size, 5]});
-  const tower = translate([0, 0, 10], cylinder({height: 20, radius: 5, segments: 32}));
-  return union(base, tower);
+  const hole = cylinder({height: 20, radius: 5, segments: 32});
+  
+  // Correct: Apply transform to the single result
+  const part = subtract(base, hole);
+  return translate([0, 0, 10], part); 
 }
 
 module.exports = { main, getParameterDefinitions };

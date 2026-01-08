@@ -1,177 +1,336 @@
-
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { prepareRender, cameras, entitiesFromSolids, drawCommands } from '@jscad/regl-renderer';
 import * as modeling from '@jscad/modeling';
 
 interface JSCADViewerProps {
-  openSCADCode: string; // detailed as 'code' from backend
-  base64Image?: string;
+  openSCADCode: string;
+  onSnapshot?: (image: string) => void;
+  isGenerating?: boolean;
 }
 
-export const JSCADViewer = ({ openSCADCode, base64Image }: JSCADViewerProps) => {
+export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADViewerProps) => {
   const [error, setError] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  
   const containerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<any>(null);
+  const renderLoopRef = useRef<number | null>(null);
+  const cleanupRef = useRef<(() => void) | null>(null);
+  
+  const stateRef = useRef<{
+    camera: any;
+    perspectiveCamera: any;
+  } | null>(null);
+
+  const toggleFullscreen = () => setIsFullscreen(!isFullscreen);
+
+  const handleSnapshot = () => {
+    if (!containerRef.current || !onSnapshot) return;
+    const canvas = containerRef.current.querySelector('canvas');
+    if (canvas) {
+      try {
+        const dataUrl = canvas.toDataURL('image/png');
+        onSnapshot(dataUrl);
+      } catch (e) {
+        console.error("Snapshot failed", e);
+      }
+    }
+  };
+
+  // --- MANUAL NAVIGATION LOGIC (THE "ATOMIC" FIX) ---
+  
+  const performZoom = (factor: number) => {
+    const s = stateRef.current;
+    if (!s) return;
+    const cam = s.camera;
+    const dx = cam.position[0] - cam.target[0];
+    const dy = cam.position[1] - cam.target[1];
+    const dz = cam.position[2] - cam.target[2];
+    cam.position[0] = cam.target[0] + dx * factor;
+    cam.position[1] = cam.target[1] + dy * factor;
+    cam.position[2] = cam.target[2] + dz * factor;
+    s.perspectiveCamera.update(cam, cam);
+  };
+
+  const performRotate = (dx: number, dy: number) => {
+    const s = stateRef.current;
+    if (!s) return;
+    const cam = s.camera;
+
+    // 1. Calculate relative vector
+    const rx = cam.position[0] - cam.target[0];
+    const ry = cam.position[1] - cam.target[1];
+    const rz = cam.position[2] - cam.target[2];
+
+    // 2. Spherical conversion
+    let radius = Math.sqrt(rx*rx + ry*ry + rz*rz);
+    let theta = Math.atan2(ry, rx); // azimuth
+    let phi = Math.acos(rz / radius); // inclination
+
+    // 3. Apply deltas
+    theta += dx * 0.01;
+    phi = Math.max(0.1, Math.min(Math.PI - 0.1, phi + dy * 0.01));
+
+    // 4. Back to Cartesian
+    cam.position[0] = cam.target[0] + radius * Math.sin(phi) * Math.cos(theta);
+    cam.position[1] = cam.target[1] + radius * Math.sin(phi) * Math.sin(theta);
+    cam.position[2] = cam.target[2] + radius * Math.cos(phi);
+
+    s.perspectiveCamera.update(cam, cam);
+  };
+
+  const handleZoomIn = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    performZoom(0.8); 
+  };
+
+  const handleZoomOut = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    performZoom(1.2);
+  };
 
   useEffect(() => {
+    if (cleanupRef.current) {
+      cleanupRef.current();
+      cleanupRef.current = null;
+    }
+
     if (!openSCADCode || !containerRef.current) return;
 
-    const render3D = async () => {
-      try {
-        setError(null);
+    let isActive = true;
+    const container = containerRef.current;
+    container.innerHTML = ''; 
 
-        // 1. Prepare the container
-        const container = containerRef.current!;
-        // Clear previous canvas if any (simple way)
-        container.innerHTML = '';
+    try {
+      setError(null);
 
-        // 2. Mock 'require' to provide @jscad/modeling
-        const require = (moduleName: string) => {
-          if (moduleName === '@jscad/modeling') return modeling;
-          throw new Error(`Unknown module: ${moduleName}`);
-        };
+      // 1. Setup JSCAD Env
+      const jscadShim = {
+        primitives: modeling.primitives,
+        transforms: modeling.transforms,
+        booleans: modeling.booleans,
+        hulls: modeling.hulls,
+        extrusions: modeling.extrusions,
+        utils: modeling.utils,
+        maths: modeling.maths,
+        measurements: modeling.measurements,
+        geometries: modeling.geometries,
+        expansions: modeling.expansions,
+        colors: modeling.colors,
+      };
 
-        // 3. Evaluate the code to get the 'main' function
-        // We provide a 'jscad' global object mirroring the structure expected by the generated code
-        const jscadShim = {
-          primitives: modeling.primitives,
-          transforms: modeling.transforms,
-          booleans: modeling.booleans,
-          hulls: modeling.hulls,
-          extrusions: modeling.extrusions,
-          utils: modeling.utils,
-          maths: modeling.maths,
-          measurements: modeling.measurements,
-          geometries: modeling.geometries,
-          expansions: modeling.expansions,
-          colors: modeling.colors,
-        };
+      const func = new Function('jscad', 'require', 'module', `
+        ${openSCADCode}
+        return module.exports;
+      `);
 
-        // We wrap it in a function that returns module.exports
-        const func = new Function('jscad', 'require', 'module', `
-          ${openSCADCode}
-          return module.exports;
-        `);
+      const module = { exports: {} as any };
+      const exports = func(jscadShim, (m: string) => m === '@jscad/modeling' ? modeling : null, module);
 
-        const module = { exports: {} as any };
-        const exports = func(jscadShim, require, module);
-
-        if (typeof exports.main !== 'function') {
-          throw new Error("Generated code did not export a 'main' function");
-        }
-
-        // 4. Resolve Parameters
-        let params = {};
-        if (typeof exports.getParameterDefinitions === 'function') {
-          const definitions = exports.getParameterDefinitions();
-          // Extract initial values
-          params = definitions.reduce((acc: any, def: any) => {
-            acc[def.name] = def.initial;
-            return acc;
-          }, {});
-        }
-
-        // 5. Generate Geometry
-        // Verify if main expects arguments (though accessing length property on user code function isn't always reliable, 
-        // passing params is standard in JSCAD V2)
-        const solids = exports.main(params);
-        const entities = entitiesFromSolids({}, solids);
-
-        // 5. Setup Renderer
-        const width = container.clientWidth;
-        const height = container.clientHeight;
-
-
-        const perspectiveCamera = cameras.perspective;
-        const camera = Object.assign({}, perspectiveCamera.defaults);
-        perspectiveCamera.setProjection(camera, camera, { width, height });
-        perspectiveCamera.update(camera, camera);
-
-        const options = {
-          glOptions: { container },
-        };
-
-        const renderer = prepareRender(options);
-        rendererRef.current = renderer;
-
-        // 6. Draw Loop
-        const render = () => {
-          renderer({
-            camera,
-            drawCommands: {
-              drawAxis: drawCommands.drawAxis,
-              drawGrid: drawCommands.drawGrid,
-              drawLines: drawCommands.drawLines,
-              drawMesh: drawCommands.drawMesh,
-            },
-            entities: entities
-          });
-        };
-
-        render();
-
-        // Handle resize if needed (simplified for now)
-      } catch (err) {
-        console.error("Render Failed:", err);
-        const errorMessage = err instanceof Error ? err.message : 'Render failed';
-        setError(errorMessage);
-
-        // LOGGING: Send frontend error to backend
-        try {
-          fetch('http://localhost:8000/api/log/error', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              source: 'frontend_render',
-              error: errorMessage,
-              code: openSCADCode,
-              timestamp: new Date().toISOString()
-            })
-          }).catch(e => console.warn("Failed to send error log to backend:", e));
-        } catch (e) {
-          // ignore logging errors
-        }
+      let params = {};
+      if (typeof exports.getParameterDefinitions === 'function') {
+        params = exports.getParameterDefinitions().reduce((acc: any, def: any) => {
+          acc[def.name] = def.initial;
+          return acc;
+        }, {});
       }
-    };
 
-    render3D();
+      const solids = exports.main(params);
+      const entities = entitiesFromSolids({}, solids);
 
-  }, [openSCADCode]);
+      // 2. Renderer & Camera
+      const perspectiveCamera = cameras.perspective;
+      const camera = Object.assign({}, perspectiveCamera.defaults);
+      perspectiveCamera.setProjection(camera, camera, { 
+        width: container.clientWidth, 
+        height: container.clientHeight 
+      });
+      // Initial position for better view
+      camera.position = [500, 500, 500];
+      perspectiveCamera.update(camera, camera);
 
+      stateRef.current = { camera, perspectiveCamera };
 
-  return (
-    <div className="jscad-viewer h-full flex flex-col">
-      <h3 className="mb-2 text-lg font-semibold">3D Preview</h3>
+      const renderer = prepareRender({
+        glOptions: { container, attributes: { preserveDrawingBuffer: true } }
+      });
 
-      {error && (
-        <div className="p-3 bg-red-100 border border-red-400 text-red-700 rounded mb-2 text-sm whitespace-pre-wrap">
-          {error}
+      // 3. High-Performance Interaction
+      let isDragging = false;
+      let lastX = 0;
+      let lastY = 0;
+
+      const onDown = (e: MouseEvent) => {
+        isDragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      };
+
+      const onUp = () => { 
+        isDragging = false; 
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+
+      const onMove = (e: MouseEvent) => {
+        if (!isDragging) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        performRotate(-dx, -dy);
+        lastX = e.clientX;
+        lastY = e.clientY;
+      };
+      
+      const onWheel = (e: WheelEvent) => {
+         e.preventDefault();
+         const factor = e.deltaY > 0 ? 1.1 : 0.9;
+         performZoom(factor);
+      };
+
+      container.addEventListener('mousedown', onDown);
+      container.addEventListener('wheel', onWheel, { passive: false });
+      container.addEventListener('contextmenu', (e) => e.preventDefault());
+
+      // 4. Resize
+      const resizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width === 0 || height === 0) continue;
+          perspectiveCamera.setProjection(camera, camera, { width, height });
+          perspectiveCamera.update(camera, camera);
+          const canvas = container.querySelector('canvas');
+          if (canvas) {
+              const pr = window.devicePixelRatio || 1;
+              canvas.width = width * pr;
+              canvas.height = height * pr;
+          }
+        }
+      });
+      resizeObserver.observe(container);
+
+      // 5. Loop
+      const loop = () => {
+        if (!isActive) return;
+        renderer({
+          camera,
+          drawCommands: {
+            drawAxis: drawCommands.drawAxis,
+            drawGrid: drawCommands.drawGrid,
+            drawLines: drawCommands.drawLines,
+            drawMesh: drawCommands.drawMesh,
+          },
+          entities: [
+            { visuals: { drawCmd: 'drawGrid', show: true, color: [0, 0.8, 0.8, 0.3], subColor: [0, 0.4, 0.4, 0.1], size: 1000, ticks: 100 } },
+            { visuals: { drawCmd: 'drawAxis', show: true } },
+            ...entities
+          ]
+        });
+        renderLoopRef.current = requestAnimationFrame(loop);
+      };
+      loop();
+
+      cleanupRef.current = () => {
+        isActive = false;
+        resizeObserver.disconnect();
+        if (renderLoopRef.current) cancelAnimationFrame(renderLoopRef.current);
+        container.removeEventListener('mousedown', onDown);
+        container.removeEventListener('wheel', onWheel);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Render failed');
+    }
+
+    return () => { if (cleanupRef.current) cleanupRef.current(); };
+  }, [openSCADCode, isFullscreen]);
+
+  const viewerContent = (
+    <div className={`w-full h-full relative bg-black flex flex-col ${isFullscreen ? 'fixed inset-0 z-[100] w-screen h-screen' : ''}`}>
+       {/* Tech Controls Overlay */}
+       <div className="absolute top-4 right-4 z-[110] flex gap-2">
+        {onSnapshot && openSCADCode && (
+          <button
+            onClick={handleSnapshot}
+            className="bg-black border border-[var(--tech-accent)] text-[var(--tech-accent)] px-3 py-1 text-xs hover:bg-[var(--tech-accent)] hover:text-black uppercase tracking-wider transition-all font-mono flex items-center shadow-[0_0_10px_rgba(0,243,255,0.2)]"
+          >
+            <span className="mr-2">REC</span> SNAPSHOT
+          </button>
+        )}
+        
+        <div className="flex border border-[var(--tech-border)] rounded-sm bg-black shadow-[0_0_10px_rgba(0,243,255,0.1)]">
+            <button type="button" onClick={handleZoomIn} className="px-3 py-1 text-[var(--tech-accent)] hover:bg-[var(--tech-border)] font-mono border-r border-[var(--tech-border)] active:bg-[var(--tech-accent)] active:text-black">+</button>
+            <button type="button" onClick={handleZoomOut} className="px-3 py-1 text-[var(--tech-accent)] hover:bg-[var(--tech-border)] font-mono active:bg-[var(--tech-accent)] active:text-black">-</button>
         </div>
-      )}
 
-      {!openSCADCode && !base64Image && (
-        <div className="flex-1 bg-gray-100 rounded flex items-center justify-center text-gray-400">
-          Draw & Generate to View
-        </div>
-      )}
-
-      <div
-        ref={containerRef}
-        className="flex-1 bg-gray-900 rounded overflow-hidden relative"
-        style={{ minHeight: '400px' }}
-      >
-        {/* Canvas will be injected here */}
+        <button
+          onClick={toggleFullscreen}
+          className="bg-black border border-[var(--tech-border)] text-[var(--tech-text-muted)] px-3 py-1 text-xs hover:border-[var(--tech-accent)] hover:text-[var(--tech-accent)] uppercase tracking-wider font-mono transition-all shadow-[0_0_10px_rgba(0,243,255,0.1)]"
+        >
+          {isFullscreen ? "[ X ]" : "[ MAX ]"}
+        </button>
       </div>
 
-      {/* Debug Code Toggle (Optional) */}
+      {/* Navigation Hint (Only when model exists) */}
       {openSCADCode && (
-        <details className="mt-2 text-xs text-gray-500">
-          <summary>View Generated Code</summary>
-          <pre className="mt-1 p-2 bg-gray-100 rounded overflow-auto max-h-40">
-            {openSCADCode}
-          </pre>
+        <div className="absolute bottom-4 left-4 z-10 pointer-events-none">
+          <div className="text-[9px] text-[var(--tech-text-muted)] font-mono uppercase tracking-widest bg-black/40 p-2 border-l border-[var(--tech-accent)]">
+            DRAG_TO_ORBIT // SCROLL_TO_ZOOM
+          </div>
+        </div>
+      )}
+
+      {/* States */}
+      {!openSCADCode && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+          <div className="text-center">
+            {isGenerating ? (
+              <div className="text-[var(--tech-accent)] font-mono animate-pulse">
+                <div className="text-xs mb-2 uppercase tracking-widest">Compiling Design Data</div>
+                <div className="border border-[var(--tech-accent)] px-8 py-4 text-xl bg-black shadow-[0_0_20px_rgba(0,243,255,0.3)]">INITIALIZING_GEOMETRY...</div>
+              </div>
+            ) : (
+              <div className="text-[var(--tech-text-muted)] font-mono">
+                <div className="text-xs mb-2 uppercase tracking-widest">Awaiting Vector Stream</div>
+                <div className="border border-[var(--tech-border)] px-8 py-4 text-xl text-[var(--tech-accent)]">CORE_SYSTEM_READY</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-[120] p-4">
+           <div className="border border-[var(--tech-error)] p-6 max-w-md bg-black text-[var(--tech-error)] font-mono text-xs shadow-[0_0_20px_rgba(255,51,51,0.2)]">
+             <div className="border-b border-[var(--tech-error)] mb-3 font-bold pb-2 uppercase tracking-tighter">HALT: GEOMETRY_OVERFLOW_ERROR</div>
+             {error}
+           </div>
+        </div>
+      )}
+
+      {/* 3D Container */}
+      <div 
+        ref={containerRef} 
+        className="flex-1 overflow-hidden w-full h-full relative" 
+        style={{ cursor: 'crosshair', pointerEvents: 'auto' }} 
+      />
+
+       {/* Source Code */}
+       {openSCADCode && !isFullscreen && (
+        <details className="border-t border-[var(--tech-border)] bg-black">
+          <summary className="cursor-pointer p-2 text-[10px] text-[var(--tech-text-muted)] hover:text-[var(--tech-accent)] font-mono uppercase tracking-widest transition-colors">
+            &gt; Raw_Vector_Source
+          </summary>
+          <pre className="p-4 text-[10px] text-[var(--tech-text-main)] overflow-auto max-h-40 font-mono bg-[#050505] custom-scrollbar selection:bg-[var(--tech-accent)] selection:text-black">{openSCADCode}</pre>
         </details>
       )}
     </div>
+  );
+
+  return isFullscreen ? createPortal(viewerContent, document.body) : (
+    <div className="jscad-viewer h-full flex flex-col border border-[var(--tech-border)] bg-black overflow-hidden">{viewerContent}</div>
   );
 };
