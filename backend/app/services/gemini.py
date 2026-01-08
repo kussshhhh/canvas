@@ -3,6 +3,7 @@ from google.genai import types
 import os
 import re
 import base64
+import datetime
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -73,27 +74,65 @@ async def generate_openscad(image: str, prompt: str) -> str:
     print(f"Prompt: {prompt}")
     print(f"Image size: {len(image_bytes)} bytes")
 
-    try:
-        # Call Gemini 2.5 Flash
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[types.Content(role="user", parts=parts)]
-        )
-        
-        # Extract code from response
-        code = response.text
-        print(f"--- Received response from Gemini ---")
-        print(f"Raw response length: {len(code)}")
-        print(f"Response snippet: {code[:100]}...")
+    # Correct model names based on availability
+    models_to_try = ["gemini-3-pro-preview", "gemini-3-flash-preview", "gemini-2.5-flash"]
+    last_exception = None
 
-        # Clean up response (remove markdown code blocks if present)
-        code = re.sub(r'```(?:openscad)?\n?', '', code)
-        code = re.sub(r'```', '', code)
-        code = code.strip()
+    for model in models_to_try:
+        try:
+            print(f"--- Attempting generation with model: {model} ---")
+            # Call Gemini with deterministic config
+            response = client.models.generate_content(
+                model=model,
+                contents=[types.Content(role="user", parts=parts)],
+                config=types.GenerateContentConfig(
+                    temperature=0.0
+                )
+            )
+            
+            # Extract code from response
+            code = response.text
+            print(f"--- Received response from {model} ---")
+            
+            # LOGGING: Save raw response to file
+            try:
+                # Get project root logs directory
+                current_file_dir = os.path.dirname(os.path.abspath(__file__))
+                log_dir = os.path.abspath(os.path.join(current_file_dir, "../../../logs"))
+                os.makedirs(log_dir, exist_ok=True)
+                
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                log_file = os.path.join(log_dir, f"backend_{timestamp}_{model}.log")
+                
+                with open(log_file, "w") as f:
+                    f.write(f"TIMESTAMP: {timestamp}\n")
+                    f.write(f"MODEL: {model}\n")
+                    f.write(f"PROMPT: {prompt}\n")
+                    f.write("-" * 50 + "\n")
+                    f.write("FULL RAW RESPONSE:\n")
+                    f.write(code)
+                    f.write("\n" + "-" * 50 + "\n")
+                
+                print(f"--- Logged response to {log_file} ---")
+            except Exception as log_err:
+                print(f"--- Warning: Failed to write log file: {log_err} ---")
+
+            print(f"Raw response length: {len(code)}")
+            print(f"Response snippet: {code[:100]}...")
+
+            # Clean up response (remove markdown code blocks if present)
+            code = re.sub(r'```(?:openscad|javascript|js)?\n?', '', code)
+            code = re.sub(r'```', '', code)
+            code = code.strip()
+            
+            return code
         
-        return code
-    
-    except Exception as e:
-        # Improve error logging
-        print(f"Gemini API Error Details: {e}")
-        raise Exception(f"Gemini API error: {str(e)}")
+        except Exception as e:
+            print(f"--- Warning: Failed with {model} ---")
+            print(f"Error Details: {e}")
+            last_exception = e
+            # Continue to next model in the list
+            continue
+
+    # If we get here, all models failed
+    raise Exception(f"Gemini API error: All models failed. Last error: {str(last_exception)}")

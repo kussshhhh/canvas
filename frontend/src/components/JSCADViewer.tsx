@@ -42,6 +42,9 @@ export const JSCADViewer = ({ openSCADCode, base64Image }: JSCADViewerProps) => 
           utils: modeling.utils,
           maths: modeling.maths,
           measurements: modeling.measurements,
+          geometries: modeling.geometries,
+          expansions: modeling.expansions,
+          colors: modeling.colors,
         };
 
         // We wrap it in a function that returns module.exports
@@ -110,7 +113,24 @@ export const JSCADViewer = ({ openSCADCode, base64Image }: JSCADViewerProps) => 
         // Handle resize if needed (simplified for now)
       } catch (err) {
         console.error("Render Failed:", err);
-        setError(err instanceof Error ? err.message : 'Render failed');
+        const errorMessage = err instanceof Error ? err.message : 'Render failed';
+        setError(errorMessage);
+
+        // LOGGING: Send frontend error to backend
+        try {
+          fetch('http://localhost:8000/api/log/error', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              source: 'frontend_render',
+              error: errorMessage,
+              code: openSCADCode,
+              timestamp: new Date().toISOString()
+            })
+          }).catch(e => console.warn("Failed to send error log to backend:", e));
+        } catch (e) {
+          // ignore logging errors
+        }
       }
     };
 
