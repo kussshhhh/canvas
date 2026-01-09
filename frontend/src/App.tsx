@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Canvas } from './components/Canvas';
 import { JSCADViewer } from './components/JSCADViewer';
 import { ValidationPanel } from './components/ValidationPanel';
+import { BACKEND_URL } from './config';
 
 function App() {
   console.log('App function called');
@@ -31,7 +32,7 @@ function App() {
     setOpenSCADCode(''); // Clear previous code to trigger "loading" visual in viewer if needed
 
     try {
-      const response = await fetch('http://localhost:8000/api/generate', {
+      const response = await fetch(`${BACKEND_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageBase64: imageData, prompt }),

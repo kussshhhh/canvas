@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { prepareRender, cameras, entitiesFromSolids, drawCommands } from '@jscad/regl-renderer';
 import * as modeling from '@jscad/modeling';
+import { BACKEND_URL } from '../config';
 
 interface JSCADViewerProps {
   openSCADCode: string;
@@ -243,6 +244,17 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Render failed');
+      // Log error to backend
+      fetch(`${BACKEND_URL}/api/log/error`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            source: 'frontend_render',
+            error: err instanceof Error ? err.message : 'Render failed',
+            code: openSCADCode,
+            timestamp: new Date().toISOString()
+          })
+      }).catch(e => console.warn("Failed to send error log:", e));
     }
 
     return () => { if (cleanupRef.current) cleanupRef.current(); };
