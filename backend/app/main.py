@@ -1,6 +1,10 @@
 # IMPORTANT: Load environment variables BEFORE any imports that use os.getenv()
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    # dotenv not installed, assuming env vars are set by the platform
+    pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
