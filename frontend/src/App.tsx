@@ -1,41 +1,51 @@
-console.log('App component rendering');
-
-
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Canvas } from './components/Canvas';
 import { JSCADViewer } from './components/JSCADViewer';
 import { ValidationPanel } from './components/ValidationPanel';
 import { BACKEND_URL } from './config';
 
 function App() {
-  console.log('App function called');
-
   const [imageData, setImageData] = useState('');
   const [prompt, setPrompt] = useState('');
   const [openSCADCode, setOpenSCADCode] = useState('');
   const [snapshotImage, setSnapshotImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [resetKey, setResetKey] = useState(0);
+
+  const isIterating = !!openSCADCode;
+  const hasAnyState = !!openSCADCode || !!prompt || !!imageData;
 
   const handleSnapshot = (image: string) => {
     setSnapshotImage(image);
   };
 
-  const handleGenerate = async () => {
-    console.log('Generate button clicked', { hasImage: !!imageData, hasPrompt: !!prompt.trim() });
+  const handleReset = useCallback(() => {
+    if (confirm("Reset current design session? All code and progress will be cleared.")) {
+      setOpenSCADCode('');
+      setPrompt('');
+      setImageData('');
+      setSnapshotImage(null);
+      setResetKey(prev => prev + 1); // Force remount Canvas
+    }
+  }, []);
 
-    if (!imageData || !prompt.trim()) {
-      alert('Please draw a sketch and enter a description');
+  const handleGenerate = async () => {
+    if (!prompt.trim()) {
+      alert('Please enter an instruction (e.g., "Add a hole" or "Make it bigger")');
       return;
     }
 
     setIsGenerating(true);
-    setOpenSCADCode(''); // Clear previous code to trigger "loading" visual in viewer if needed
 
     try {
       const response = await fetch(`${BACKEND_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageBase64: imageData, prompt }),
+        body: JSON.stringify({ 
+          imageBase64: imageData, 
+          prompt,
+          previousCode: openSCADCode || null // Send context if iterating
+        }),
       });
 
       if (!response.ok) {
@@ -44,103 +54,103 @@ function App() {
       }
 
       const data = await response.json();
-      console.log('API response:', data);
       setOpenSCADCode(data.openSCADCode);
+      // Keep prompt if you want, or clear it for next instruction
+      setPrompt('');
+      setSnapshotImage(null); 
     } catch (error) {
       console.error('Error:', error);
-      alert(error instanceof Error ? error.message : 'Failed to generate code. Please try again.');
+      alert(error instanceof Error ? error.message : 'Failed to process request.');
     } finally {
       setIsGenerating(false);
     }
   };
 
-  console.log('App rendering JSX...');
-
   return (
-    <div className="min-h-screen bg-[var(--tech-bg)] text-[var(--tech-text-main)] font-mono selection:bg-[var(--tech-accent)] selection:text-black">
-      <header className="border-b border-[var(--tech-border)] bg-[var(--tech-surface)] p-4 flex justify-between items-center sticky top-0 z-20">
+    <div className="min-h-screen bg-[var(--tech-bg)] text-[var(--tech-text-main)] font-mono">
+      <header className="border-b border-[var(--tech-border)] bg-[var(--tech-surface)] p-4 flex justify-between items-center sticky top-0 z-20 shadow-[0_4px_20px_rgba(0,0,0,0.5)]">
         <div>
           <h1 className="text-xl font-bold tracking-wider text-[var(--tech-accent)] uppercase">
             <span className="mr-2">&gt;_</span>Physical Compiler V1
           </h1>
-          <p className="text-xs text-[var(--tech-text-muted)] mt-1">
-            SKETCH_TO_GCODE // SYSTEM_READY
+          <p className="text-[10px] text-[var(--tech-text-muted)] mt-1 tracking-[0.2em]">
+            {isIterating ? 'STATUS: REFINEMENT_MODE_ACTIVE' : 'STATUS: INITIAL_VECTOR_STDBY'}
           </p>
         </div>
-        <div className="text-xs text-[var(--tech-text-muted)] border border-[var(--tech-border)] px-2 py-1 rounded">
-          STATUS: {isGenerating ? 'PROCESSING_DATA...' : 'ONLINE'}
+        
+        <div className="flex gap-4 items-center">
+            {hasAnyState && (
+                <button 
+                    onClick={handleReset}
+                    className="text-[10px] border border-[var(--tech-error)] text-[var(--tech-error)] px-3 py-1 hover:bg-[var(--tech-error)] hover:text-white transition-all uppercase"
+                >
+                    System_Reset
+                </button>
+            )}
+            <div className={`text-[10px] border px-3 py-1 rounded-sm ${isGenerating ? 'border-[var(--tech-accent)] text-[var(--tech-accent)] animate-pulse' : 'border-[var(--tech-border)] text-[var(--tech-text-muted)]'}`}>
+            {isGenerating ? 'EXECUTING_CORE_LOGIC...' : 'CORE_ONLINE'}
+            </div>
         </div>
       </header>
 
       <main className="flex h-[calc(100vh-73px)] overflow-hidden">
-        {/* Left Pane */}
+        {/* Left Pane: Input */}
         <div className="w-1/2 p-6 overflow-y-auto border-r border-[var(--tech-border)] bg-[var(--tech-bg)] custom-scrollbar">
           <div className="space-y-8">
             <section>
-              <h2 className="text-sm font-bold text-[var(--tech-text-muted)] mb-3 uppercase tracking-widest border-b border-[var(--tech-border)] pb-2">
-                01 // Input_Vector
-              </h2>
-              <Canvas onDrawComplete={setImageData} initialImage={snapshotImage} />
+              <div className="flex justify-between items-end mb-3 border-b border-[var(--tech-border)] pb-2">
+                <h2 className="text-sm font-bold text-[var(--tech-text-muted)] uppercase tracking-widest">
+                  01 // {snapshotImage ? 'Context_Snapshot' : 'Geometry_Vector'}
+                </h2>
+              </div>
+              <Canvas key={resetKey} onDrawComplete={setImageData} initialImage={snapshotImage} />
             </section>
 
             <section>
               <h2 className="text-sm font-bold text-[var(--tech-text-muted)] mb-3 uppercase tracking-widest border-b border-[var(--tech-border)] pb-2">
-                02 // Parameters
+                02 // {isIterating ? 'Refinement_Directives' : 'Design_Specifications'}
               </h2>
               <div>
-                <label className="block mb-2 text-xs text-[var(--tech-accent)] uppercase">
-                  Description Protocol
+                <label className="block mb-2 text-xs text-[var(--tech-accent)] uppercase opacity-70">
+                  {isIterating ? '> Enter modification parameters' : '> Define initial object geometry'}
                 </label>
                 <textarea
                   value={prompt}
-                  onChange={(e) => {
-                    console.log('Prompt changed:', e.target.value);
-                    setPrompt(e.target.value);
-                  }}
-                  placeholder="> Enter design specifications..."
-                  className="w-full p-3 bg-black border border-[var(--tech-border)] rounded-sm focus:border-[var(--tech-accent)] focus:outline-none text-sm resize-none h-32 text-[var(--tech-text-main)] placeholder-[var(--tech-border)]"
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder={isIterating ? "> e.g. 'Add a 10mm radius hole in the center' or 'Make the base 2x thicker'" : "> e.g. 'A smartphone stand with a minimalist charging slot'"}
+                  className="w-full p-4 bg-black border border-[var(--tech-border)] rounded-sm focus:border-[var(--tech-accent)] focus:ring-1 focus:ring-[var(--tech-accent)] focus:outline-none text-sm resize-none h-32 text-[var(--tech-text-main)] placeholder-[var(--tech-border)] transition-all"
                 />
               </div>
             </section>
 
             <section>
-              <h2 className="text-sm font-bold text-[var(--tech-text-muted)] mb-3 uppercase tracking-widest border-b border-[var(--tech-border)] pb-2">
-                03 // Execution
-              </h2>
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating}
-                className={`w-full py-4 border text-sm uppercase tracking-widest font-bold relative overflow-hidden group transition-all duration-100 
+                className={`w-full py-5 border text-sm uppercase tracking-[0.3em] font-bold transition-all relative
                   ${isGenerating 
-                    ? 'border-[var(--tech-text-muted)] text-[var(--tech-text-muted)] cursor-not-allowed bg-[var(--tech-surface)]' 
-                    : 'border-[var(--tech-accent)] text-[var(--tech-accent)] hover:bg-[var(--tech-accent)] hover:text-black active:scale-[0.98]'}`}
+                    ? 'border-[var(--tech-text-muted)] text-[var(--tech-text-muted)] cursor-not-allowed' 
+                    : 'border-[var(--tech-accent)] text-[var(--tech-accent)] hover:bg-[var(--tech-accent)] hover:text-black hover:shadow-[0_0_20px_rgba(0,243,255,0.4)] active:scale-[0.99]'}`}
               >
-                <span className="relative z-10 flex items-center justify-center gap-2">
-                  {isGenerating ? (
-                    <>
-                      <span className="animate-pulse">:: PROCESSING ::</span>
-                    </>
-                  ) : (
-                    'Initialize Generation Sequence'
-                  )}
-                </span>
+                {isGenerating ? 'GEN_SEQUENCE_IN_PROGRESS...' : isIterating ? 'Update_Geometry_Matrix' : 'Initialize_Design_Sequence'}
               </button>
             </section>
           </div>
         </div>
 
-        {/* Right Pane */}
+        {/* Right Pane: Output */}
         <div className="w-1/2 bg-[#050505] relative flex flex-col">
-          <div className="absolute top-0 left-0 right-0 h-6 bg-[var(--tech-surface)] border-b border-[var(--tech-border)] flex items-center px-4 justify-between z-10">
-            <span className="text-[10px] text-[var(--tech-text-muted)] uppercase tracking-widest">Viewport_3D // JSCAD_Renderer</span>
-            <div className="flex gap-1">
-              <div className={`w-2 h-2 rounded-full border border-[var(--tech-border)] ${isGenerating ? 'bg-yellow-500 animate-pulse' : 'bg-transparent'}`}></div>
-              <div className="w-2 h-2 rounded-full bg-[var(--tech-border)]"></div>
-              <div className={`w-2 h-2 rounded-full ${openSCADCode ? 'bg-[var(--tech-accent)] animate-pulse' : 'bg-[var(--tech-border)]'}`}></div>
+          <div className="absolute top-0 left-0 right-0 h-8 bg-[#0a0a0a] border-b border-[var(--tech-border)] flex items-center px-4 justify-between z-10 shadow-md">
+            <span className="text-[10px] text-[var(--tech-accent)] uppercase tracking-widest font-bold">
+                {isGenerating ? '>> SYNTHESIZING_GEOMETRY' : '>> VIEWPORT_RENDER_ACTIVE'}
+            </span>
+            <div className="flex gap-2 items-center">
+              <div className={`w-1.5 h-1.5 rounded-full ${isGenerating ? 'bg-[var(--tech-accent)] animate-ping' : 'bg-green-500 shadow-[0_0_5px_#22c55e]'}`}></div>
+              <span className="text-[9px] text-[var(--tech-text-muted)]">SYNC_LOCKED</span>
             </div>
           </div>
           
-          <div className="flex-1 relative overflow-hidden mt-6">
+          <div className="flex-1 relative overflow-hidden mt-8">
             <JSCADViewer
               openSCADCode={openSCADCode}
               onSnapshot={handleSnapshot}
@@ -149,7 +159,7 @@ function App() {
           </div>
 
           {openSCADCode && (
-            <div className="h-48 border-t border-[var(--tech-border)] bg-[var(--tech-surface)] overflow-y-auto p-4 custom-scrollbar">
+            <div className="h-40 border-t border-[var(--tech-border)] bg-[var(--tech-surface)] overflow-y-auto p-4 custom-scrollbar shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
                <ValidationPanel openSCADCode={openSCADCode} />
             </div>
           )}

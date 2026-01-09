@@ -1,33 +1,21 @@
-from fastapi import APIRouter, HTTPException, Request
-from app.services.gemini import generate_openscad
-from app.services.rate_limiter import check_rate_limit
+from fastapi import APIRouter, HTTPException
 from app.models.schemas import GenerateRequest, GenerateResponse
+from app.services.gemini import generate_openscad
+import traceback
 
 router = APIRouter()
 
 @router.post("/generate", response_model=GenerateResponse)
-async def generate(request: GenerateRequest, http_request: Request):
-    """
-    Generate OpenSCAD code from sketch and text description
-    """
-    # Rate limiting
-    if not check_rate_limit(http_request):
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded. Maximum 10 requests per minute."
-        )
-    
+async def generate(request: GenerateRequest):
     try:
-        # Call Gemini
-        openscad_code = await generate_openscad(
+        # Call service with new optional previousCode
+        code = await generate_openscad(
+            prompt=request.prompt, 
             image=request.imageBase64,
-            prompt=request.prompt
+            previous_code=request.previousCode
         )
-        
-        return GenerateResponse(openSCADCode=openscad_code)
-    
+        return GenerateResponse(openSCADCode=code)
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate code: {str(e)}"
-        )
+        print(f"Error in generate endpoint: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

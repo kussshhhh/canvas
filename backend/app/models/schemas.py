@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+from typing import Optional
 
 class GenerateRequest(BaseModel):
-    imageBase64: str = Field(..., description="Base64 encoded PNG image")
-    prompt: str = Field(..., description="User's text description of desired model")
+    imageBase64: Optional[str] = None
+    prompt: str
+    previousCode: Optional[str] = None
 
 class GenerateResponse(BaseModel):
-    openSCADCode: str = Field(..., description="Generated OpenSCAD code")
-    rawResponse: str = Field(default=None, description="Optional full AI response")
+    openSCADCode: str
+    rawResponse: Optional[str] = None

@@ -96,11 +96,14 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
       cleanupRef.current = null;
     }
 
-    if (!openSCADCode || !containerRef.current) return;
-
-    let isActive = true;
+    if (!containerRef.current) return;
+    
     const container = containerRef.current;
     container.innerHTML = ''; 
+
+    if (!openSCADCode) return;
+
+    let isActive = true;
 
     try {
       setError(null);
