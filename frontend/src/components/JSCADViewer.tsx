@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { prepareRender, cameras, entitiesFromSolids, drawCommands } from '@jscad/regl-renderer';
 import * as modeling from '@jscad/modeling';
-import { serializers } from '@jscad/io';
+import { stlSerializer } from '@jscad/io';
 import { BACKEND_URL } from '../config';
 
 interface JSCADViewerProps {
@@ -43,7 +43,7 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
   const handleExport = () => {
     if (!solidsRef.current) return;
     try {
-      const rawData = serializers.stl.serialize({ binary: true }, solidsRef.current);
+      const rawData = stlSerializer.serialize({ binary: true }, ...solidsRef.current);
       const blob = new Blob(rawData, { type: 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
