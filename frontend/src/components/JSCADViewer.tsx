@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { prepareRender, cameras, entitiesFromSolids, drawCommands } from '@jscad/regl-renderer';
 import * as modeling from '@jscad/modeling';
+import { serializers } from '@jscad/io';
 import { BACKEND_URL } from '../config';
 
 interface JSCADViewerProps {
@@ -17,6 +18,7 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
   const containerRef = useRef<HTMLDivElement>(null);
   const renderLoopRef = useRef<number | null>(null);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const solidsRef = useRef<any[] | null>(null);
   
   const stateRef = useRef<{
     camera: any;
@@ -35,6 +37,25 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
       } catch (e) {
         console.error("Snapshot failed", e);
       }
+    }
+  };
+
+  const handleExport = () => {
+    if (!solidsRef.current) return;
+    try {
+      const rawData = serializers.stl.serialize({ binary: true }, solidsRef.current);
+      const blob = new Blob(rawData, { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `model_${Date.now()}.stl`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("Export failed", e);
+      alert("Failed to export STL. See console for details.");
     }
   };
 
@@ -100,6 +121,7 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
     
     const container = containerRef.current;
     container.innerHTML = ''; 
+    solidsRef.current = null;
 
     if (!openSCADCode) return;
 
@@ -140,6 +162,7 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
       }
 
       const solids = exports.main(params);
+      solidsRef.current = Array.isArray(solids) ? solids : [solids];
       const entities = entitiesFromSolids({}, solids);
 
       // 2. Renderer & Camera
@@ -267,6 +290,15 @@ export const JSCADViewer = ({ openSCADCode, onSnapshot, isGenerating }: JSCADVie
     <div className={`w-full h-full relative bg-black flex flex-col ${isFullscreen ? 'fixed inset-0 z-[100] w-screen h-screen' : ''}`}>
        {/* Tech Controls Overlay */}
        <div className="absolute top-4 right-4 z-[110] flex gap-2">
+        {openSCADCode && (
+          <button
+            onClick={handleExport}
+            className="bg-black border border-[var(--tech-accent)] text-[var(--tech-accent)] px-3 py-1 text-xs hover:bg-[var(--tech-accent)] hover:text-black uppercase tracking-wider transition-all font-mono flex items-center shadow-[0_0_10px_rgba(0,243,255,0.2)]"
+          >
+            EXPORT STL
+          </button>
+        )}
+
         {onSnapshot && openSCADCode && (
           <button
             onClick={handleSnapshot}

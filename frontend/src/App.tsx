@@ -29,7 +29,7 @@ function App() {
     }
   }, []);
 
-  const handleGenerate = async () => {
+  const generate = async (shouldIterate: boolean) => {
     if (!prompt.trim()) {
       alert('Please enter an instruction (e.g., "Add a hole" or "Make it bigger")');
       return;
@@ -44,7 +44,7 @@ function App() {
         body: JSON.stringify({ 
           imageBase64: imageData, 
           prompt,
-          previousCode: openSCADCode || null // Send context if iterating
+          previousCode: shouldIterate ? (openSCADCode || null) : null
         }),
       });
 
@@ -55,7 +55,6 @@ function App() {
 
       const data = await response.json();
       setOpenSCADCode(data.openSCADCode);
-      // Keep prompt if you want, or clear it for next instruction
       setPrompt('');
       setSnapshotImage(null); 
     } catch (error) {
@@ -64,6 +63,14 @@ function App() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleGenerate = () => generate(true);
+
+  const handleRegenerateFromScratch = () => {
+      if (confirm("This will discard the current 3D model and generate a new one from scratch. Are you sure?")) {
+          generate(false);
+      }
   };
 
   return (
@@ -123,7 +130,7 @@ function App() {
               </div>
             </section>
 
-            <section>
+            <section className="space-y-3">
               <button
                 onClick={handleGenerate}
                 disabled={isGenerating}
@@ -134,6 +141,15 @@ function App() {
               >
                 {isGenerating ? 'GEN_SEQUENCE_IN_PROGRESS...' : isIterating ? 'Update_Geometry_Matrix' : 'Initialize_Design_Sequence'}
               </button>
+
+              {isIterating && !isGenerating && (
+                <button
+                    onClick={handleRegenerateFromScratch}
+                    className="w-full py-3 border border-[var(--tech-text-muted)] text-[var(--tech-text-muted)] text-[10px] uppercase tracking-[0.2em] hover:bg-[var(--tech-error)] hover:text-white hover:border-[var(--tech-error)] transition-all opacity-60 hover:opacity-100"
+                >
+                    Discard & New Attempt
+                </button>
+              )}
             </section>
           </div>
         </div>

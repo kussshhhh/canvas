@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@jscad/core": "^2.6.13",
+    "@jscad/io": "^2.4.12",
+    "@jscad/modeling": "^2.12.6",
     "@jscad/regl-renderer": "^2.6.13",
     "orbit-controls": "^1.2.4",
     "react": "^18.2.0",
