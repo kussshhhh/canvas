@@ -2,6 +2,7 @@ console.log('=== React App Starting ===');
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { Analytics } from '@vercel/analytics/react';
 import App from './App';
 import './index.css';
 
@@ -22,6 +23,7 @@ try {
   ReactDOM.createRoot(root).render(
     <React.StrictMode>
       <App />
+      <Analytics />
     </React.StrictMode>,
   );
   console.log('React app mounted successfully!');

@@ -13,6 +13,7 @@
     "@jscad/io": "^2.4.12",
     "@jscad/modeling": "^2.12.6",
     "@jscad/regl-renderer": "^2.6.13",
+    "@vercel/analytics": "^1.6.1",
     "orbit-controls": "^1.2.4",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
